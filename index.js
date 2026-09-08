@@ -80,7 +80,8 @@ Mensagem: "${texto.replace(/"/g, "'")}"
     const txt = result.response.text().trim()
       .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     return JSON.parse(txt)
-  } catch {
+  } catch (e) {
+    console.error('❌ Gemini erro:', e.message)
     return { acao: 'nao_entendido', dados: {} }
   }
 }
