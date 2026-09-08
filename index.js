@@ -261,11 +261,18 @@ async function conectar() {
         continue
       }
 
+      const m = msg.message || {}
       const texto = (
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text || ''
+        m.conversation ||
+        m.extendedTextMessage?.text ||
+        m.ephemeralMessage?.message?.conversation ||
+        m.ephemeralMessage?.message?.extendedTextMessage?.text ||
+        m.viewOnceMessage?.message?.conversation ||
+        m.documentWithCaptionMessage?.message?.documentMessage?.caption ||
+        ''
       ).trim()
 
+      console.log(`📦 tipo=${Object.keys(m)[0] || 'vazio'} texto="${texto}"`)
       if (!texto) continue
       if (texto.startsWith('!')) continue // escape: mensagens começando com ! são ignoradas
 
