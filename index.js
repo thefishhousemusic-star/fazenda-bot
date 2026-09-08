@@ -226,12 +226,24 @@ async function conectar() {
       const code = (lastDisconnect?.error instanceof Boom)
         ? lastDisconnect.error.output.statusCode
         : 0
-      if (code !== DisconnectReason.loggedOut) {
+      console.log(`❌ Desconectado: code=${code} msg=${lastDisconnect?.error?.message || ''}`)
+
+      const limparAuth = code === DisconnectReason.loggedOut
+        || code === DisconnectReason.badSession
+        || code === 440 // connectionReplaced
+
+      if (limparAuth) {
+        console.log('🗑️ Limpando auth e gerando novo QR...')
+        try {
+          const { rmSync } = await import('fs')
+          rmSync(AUTH_DIR, { recursive: true, force: true })
+          mkdirSync(AUTH_DIR, { recursive: true })
+        } catch {}
+        qrCodeData = null
+        setTimeout(conectar, 2000)
+      } else {
         console.log('Reconectando em 5s...')
         setTimeout(conectar, 5000)
-      } else {
-        console.log('Desconectado — novo QR necessário')
-        qrCodeData = null
       }
     }
 
