@@ -13,6 +13,10 @@ import QRCode from 'qrcode'
 import pino from 'pino'
 import { mkdirSync, existsSync } from 'fs'
 
+// Evita crash por erros não tratados do Baileys
+process.on('uncaughtException', err => console.error('uncaughtException:', err.message))
+process.on('unhandledRejection', err => console.error('unhandledRejection:', err?.message || err))
+
 // ─── Config ──────────────────────────────────────────────────────────────────
 const PORT            = process.env.PORT             || 3000
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL
