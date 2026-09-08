@@ -252,6 +252,7 @@ async function conectar() {
 
       // Só responde no chat "Notas Pessoais" (mensagem pra si mesmo)
       const meuJid = jidNormalizedUser(sock.user.id)
+      console.log(`🔍 remoteJid=${msg.key.remoteJid} | meuJid=${meuJid}`)
       if (msg.key.remoteJid !== meuJid) continue
 
       // Ignora as próprias respostas do bot
