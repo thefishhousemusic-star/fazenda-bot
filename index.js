@@ -1,0 +1,311 @@
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  jidNormalizedUser,
+} from '@whiskeysockets/baileys'
+import { Boom } from '@hapi/boom'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import express from 'express'
+import QRCode from 'qrcode'
+import pino from 'pino'
+import { mkdirSync, existsSync } from 'fs'
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+const PORT            = process.env.PORT             || 3000
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL
+const APPS_SCRIPT_KEY = process.env.APPS_SCRIPT_KEY  || 'fazenda2026'
+const GEMINI_API_KEY  = process.env.GEMINI_API_KEY
+const AUTH_DIR        = '/tmp/baileys_auth'
+
+if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true })
+
+// ─── Gemini ───────────────────────────────────────────────────────────────────
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+async function callScript(action, data = {}) {
+  const params = new URLSearchParams({
+    api_key: APPS_SCRIPT_KEY,
+    action,
+    data: JSON.stringify(data),
+    t: Date.now(),
+  })
+  const res = await fetch(`${APPS_SCRIPT_URL}?${params}`, { redirect: 'follow' })
+  return res.json()
+}
+
+const fmtR = v =>
+  `R$ ${parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+const hoje = () => new Date().toLocaleDateString('pt-BR')
+
+// ─── AI: classifica a mensagem ────────────────────────────────────────────────
+async function classificar(texto) {
+  const prompt = `Você é assistente de registro financeiro de um produtor rural.
+Analise a mensagem e responda APENAS com JSON válido, sem markdown, sem explicações.
+
+Data de hoje: ${hoje()}
+
+Ações disponíveis:
+- registrar_gasto_pessoal: gastos pessoais (mercado, restaurante, farmácia, roupa, gasolina pessoal, etc)
+- registrar_custo_fazenda: custos da fazenda (diesel, manutenção, ferramentas, ração, insumos, etc)
+- registrar_carga: carga de carvão — sempre precisa de peso em kg e metros
+- registrar_pagamento: pagamento a funcionário da fazenda (Bandinha, Nilton, Paulinho, etc)
+- consultar_resumo: perguntar quanto gastou no mês
+- nao_entendido: qualquer outra coisa
+
+Formato:
+{"acao":"<acao>","dados":{...}}
+
+Campos por ação:
+- registrar_gasto_pessoal: {"descricao":"","valor":0,"categoria":"Alimentação|Transporte|Saúde|Casa|Lazer|Vestuário|Outros","data":"${hoje()}"}
+- registrar_custo_fazenda: {"descricao":"","valor":0,"categoria":"Combustível|Manutenção|Insumos|Ferramentas|Salários|Outros","data":"${hoje()}"}
+- registrar_carga: {"peso_kg":0,"metragem_m":0,"valor_carga":null,"data":"${hoje()}"}
+- registrar_pagamento: {"funcionario":"","valor":0,"data":"${hoje()}"}
+- consultar_resumo: {"tipo":"pessoal|fazenda|ambos"}
+- nao_entendido: {}
+
+Mensagem: "${texto.replace(/"/g, "'")}"
+`
+  try {
+    const result = await model.generateContent(prompt)
+    const txt = result.response.text().trim()
+      .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    return JSON.parse(txt)
+  } catch {
+    return { acao: 'nao_entendido', dados: {} }
+  }
+}
+
+// ─── Processa a mensagem e retorna resposta ───────────────────────────────────
+async function processar(texto) {
+  const { acao, dados } = await classificar(texto)
+
+  switch (acao) {
+    case 'registrar_gasto_pessoal': {
+      const r = await callScript('registrar_gasto_pessoal', {
+        ...dados,
+        data: dados.data || hoje(),
+      })
+      if (!r.ok) return `❌ Erro ao registrar: ${r.error || 'desconhecido'}`
+      return (
+        `✅ *Gasto pessoal registrado*\n` +
+        `📝 ${dados.descricao}\n` +
+        `💰 ${fmtR(dados.valor)}\n` +
+        `🏷️ ${dados.categoria || 'Geral'}\n` +
+        `📅 ${dados.data || hoje()}`
+      )
+    }
+
+    case 'registrar_custo_fazenda': {
+      const r = await callScript('registrar_custo', {
+        data: dados.data || hoje(),
+        categoria: dados.categoria || 'Outros',
+        descricao: dados.descricao,
+        valor: dados.valor,
+      })
+      if (!r.ok) return `❌ Erro ao registrar: ${r.error || 'desconhecido'}`
+      return (
+        `✅ *Custo fazenda registrado*\n` +
+        `📝 ${dados.descricao}\n` +
+        `💰 ${fmtR(dados.valor)}\n` +
+        `🏷️ ${dados.categoria || 'Outros'}\n` +
+        `📅 ${dados.data || hoje()}`
+      )
+    }
+
+    case 'registrar_carga': {
+      const r = await callScript('registrar_carga', {
+        data_carregamento: dados.data || hoje(),
+        peso_kg: dados.peso_kg,
+        metragem_m: dados.metragem_m,
+        valor_carga: dados.valor_carga || undefined,
+      })
+      if (!r.ok) return `❌ Erro ao registrar carga: ${r.error || 'desconhecido'}`
+      return (
+        `✅ *Carga de carvão registrada*\n` +
+        `⚖️ ${dados.peso_kg} kg\n` +
+        `📏 ${dados.metragem_m} metros\n` +
+        `📅 ${dados.data || hoje()}` +
+        (dados.valor_carga ? `\n💰 ${fmtR(dados.valor_carga)}` : '\n💰 Valor: pendente')
+      )
+    }
+
+    case 'registrar_pagamento': {
+      const r = await callScript('registrar_custo', {
+        data: dados.data || hoje(),
+        categoria: 'Salários',
+        descricao: `Pagamento ${dados.funcionario}`,
+        valor: dados.valor,
+        responsavel: dados.funcionario,
+      })
+      if (!r.ok) return `❌ Erro ao registrar: ${r.error || 'desconhecido'}`
+      return (
+        `✅ *Pagamento registrado*\n` +
+        `👤 ${dados.funcionario}\n` +
+        `💰 ${fmtR(dados.valor)}\n` +
+        `📅 ${dados.data || hoje()}`
+      )
+    }
+
+    case 'consultar_resumo': {
+      const agora = new Date()
+      const mes = agora.getMonth() + 1
+      const ano = agora.getFullYear()
+      const nomeMes = agora.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      let resp = `📊 *Resumo — ${nomeMes}*\n`
+
+      if (dados.tipo !== 'fazenda') {
+        const r = await callScript('resumo_pessoal', { mes, ano })
+        resp += r.ok
+          ? `\n👤 *Pessoal:* ${fmtR(r.total)} (${r.quantidade} lançamentos)`
+          : '\n👤 Pessoal: erro ao consultar'
+      }
+      if (dados.tipo !== 'pessoal') {
+        const r = await callScript('resumo_custos_fazenda', { mes, ano })
+        resp += r.ok
+          ? `\n🌾 *Fazenda:* ${fmtR(r.total)} (${r.quantidade} lançamentos)`
+          : '\n🌾 Fazenda: erro ao consultar'
+      }
+      return resp
+    }
+
+    default:
+      return (
+        `❓ Não entendi. Exemplos do que posso fazer:\n\n` +
+        `• _gastei 80 no mercado_\n` +
+        `• _diesel 300 fazenda_\n` +
+        `• _carga 18000kg 74m_\n` +
+        `• _paguei Bandinha 800_\n` +
+        `• _quanto gastei esse mês?_\n` +
+        `• _resumo fazenda_\n\n` +
+        `Dica: comece com _!_ para mandar mensagem sem o bot processar`
+      )
+  }
+}
+
+// ─── WhatsApp ─────────────────────────────────────────────────────────────────
+let qrCodeData  = null
+let sock        = null
+let isConnected = false
+const botMsgIds = new Set()
+
+async function conectar() {
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
+
+  let version
+  try {
+    const r = await fetchLatestBaileysVersion()
+    version = r.version
+  } catch {
+    version = [2, 3000, 1015901307]
+  }
+
+  sock = makeWASocket({
+    version,
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: true,
+    getMessage: async () => undefined,
+  })
+
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      qrCodeData = await QRCode.toDataURL(qr)
+      console.log('📱 QR gerado — acesse /qr para escanear')
+    }
+
+    if (connection === 'close') {
+      isConnected = false
+      const code = (lastDisconnect?.error instanceof Boom)
+        ? lastDisconnect.error.output.statusCode
+        : 0
+      if (code !== DisconnectReason.loggedOut) {
+        console.log('Reconectando em 5s...')
+        setTimeout(conectar, 5000)
+      } else {
+        console.log('Desconectado — novo QR necessário')
+        qrCodeData = null
+      }
+    }
+
+    if (connection === 'open') {
+      isConnected = true
+      qrCodeData  = null
+      console.log('✅ WhatsApp conectado como', sock.user?.id)
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return
+
+    for (const msg of messages) {
+      if (!msg.key.fromMe) continue
+      if (!sock.user) continue
+      if (msg.key.remoteJid === 'status@broadcast') continue
+
+      // Só responde no chat "Notas Pessoais" (mensagem pra si mesmo)
+      const meuJid = jidNormalizedUser(sock.user.id)
+      if (msg.key.remoteJid !== meuJid) continue
+
+      // Ignora as próprias respostas do bot
+      if (botMsgIds.has(msg.key.id)) {
+        botMsgIds.delete(msg.key.id)
+        continue
+      }
+
+      const texto = (
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text || ''
+      ).trim()
+
+      if (!texto) continue
+      if (texto.startsWith('!')) continue // escape: mensagens começando com ! são ignoradas
+
+      console.log(`📨 ${texto}`)
+
+      try {
+        const resposta = await processar(texto)
+        const sent = await sock.sendMessage(meuJid, { text: resposta })
+        if (sent?.key?.id) botMsgIds.add(sent.key.id)
+      } catch (err) {
+        console.error('Erro:', err.message)
+        await sock.sendMessage(meuJid, { text: '❌ Erro interno. Tente novamente.' })
+      }
+    }
+  })
+}
+
+// ─── Express ──────────────────────────────────────────────────────────────────
+const app = express()
+
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, connected: isConnected, qrPending: !!qrCodeData })
+})
+
+app.get('/qr', (_req, res) => {
+  if (!qrCodeData) {
+    return res.send(`
+      <html><head><meta http-equiv="refresh" content="10"></head>
+      <body style="font-family:sans-serif;padding:40px;background:#111;color:#fff;text-align:center">
+        <h2>${isConnected ? '✅ Bot conectado e funcionando!' : '⏳ Gerando QR code... aguarde 10 segundos'}</h2>
+      </body></html>
+    `)
+  }
+  res.send(`
+    <html><head><meta http-equiv="refresh" content="30"></head>
+    <body style="display:flex;flex-direction:column;align-items:center;font-family:sans-serif;padding:40px;background:#111;color:#fff">
+      <h2>📱 Escaneie com o WhatsApp</h2>
+      <p style="color:#9ca3af">WhatsApp → Dispositivos vinculados → Vincular dispositivo</p>
+      <img src="${qrCodeData}" style="border-radius:16px;margin:20px 0;max-width:300px" />
+      <p style="color:#6b7280;font-size:12px">Página atualiza automaticamente em 30s</p>
+    </body></html>
+  `)
+})
+
+app.listen(PORT, () => console.log(`🚀 Servidor na porta ${PORT}`))
+conectar()

@@ -1,0 +1,16 @@
+{
+  "name": "fazenda-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.16",
+    "@google/generative-ai": "^0.21.0",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "pino": "^9.6.0"
+  }
+}

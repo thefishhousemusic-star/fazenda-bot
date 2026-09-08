@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: fazenda-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: APPS_SCRIPT_URL
+        value: https://script.google.com/macros/s/AKfycbzRKr-FY-Qbxc3RROdU_ptyatSSRJm8AreLEnfLPdiy5Nq63e7WTH6r1s80bb7s6PFApA/exec
+      - key: APPS_SCRIPT_KEY
+        value: fazenda2026
+      - key: GEMINI_API_KEY
+        sync: false
