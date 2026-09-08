@@ -1,9 +1,11 @@
-import makeWASocket, {
+import baileysDefault, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
 } from '@whiskeysockets/baileys'
+
+const makeWASocket = baileysDefault.default || baileysDefault
 import { Boom } from '@hapi/boom'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import express from 'express'
