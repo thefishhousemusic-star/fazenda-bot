@@ -192,6 +192,7 @@ async function processar(texto) {
 let qrCodeData  = null
 let sock        = null
 let isConnected = false
+let meuLid      = null
 const botMsgIds = new Set()
 
 async function conectar() {
@@ -250,7 +251,8 @@ async function conectar() {
     if (connection === 'open') {
       isConnected = true
       qrCodeData  = null
-      console.log('✅ WhatsApp conectado como', sock.user?.id)
+      meuLid = sock.authState?.creds?.me?.lid || null
+      console.log('✅ WhatsApp conectado como', sock.user?.id, '| lid:', meuLid)
     }
   })
 
@@ -275,8 +277,12 @@ async function conectar() {
         console.log(`📩 JID=${msg.key.remoteJid} fromMe=${msg.key.fromMe} tipo=${tipoPre}`)
       }
 
-      // Só responde no chat "Notas Pessoais" (mensagem pra si mesmo)
-      if (msg.key.remoteJid !== meuJid) continue
+      // Só responde no chat "Notas Pessoais" (JID normal ou LID de privacidade)
+      const lidNorm = meuLid ? meuLid.split(':')[0] + '@lid' : null
+      const isSelf = msg.key.remoteJid === meuJid
+        || (lidNorm && msg.key.remoteJid === lidNorm)
+        || msg.key.remoteJid === '205149196812325@lid' // fallback LID observado nos logs
+      if (!isSelf) continue
 
       // Ignora as próprias respostas do bot
       if (botMsgIds.has(msg.key.id)) {
