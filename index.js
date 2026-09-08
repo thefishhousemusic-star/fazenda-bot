@@ -216,6 +216,7 @@ async function conectar() {
 
   sock.ev.on('creds.update', saveCreds)
 
+
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
       qrCodeData = await QRCode.toDataURL(qr)
@@ -269,19 +270,19 @@ async function conectar() {
       if (ageSec > 60) continue
 
       const meuJid = jidNormalizedUser(sock.user.id)
+      const lidNorm = meuLid ? (meuLid.includes(':') ? meuLid.split(':')[0] + '@lid' : meuLid) : null
 
       // Loga todas mensagens não-triviais antes do filtro de JID
       const mPre = msg.message || {}
       const tipoPre = Object.keys(mPre)[0] || 'vazio'
       if (tipoPre !== 'protocolMessage' && tipoPre !== 'vazio') {
-        console.log(`📩 JID=${msg.key.remoteJid} fromMe=${msg.key.fromMe} tipo=${tipoPre}`)
+        console.log(`📩 JID=${msg.key.remoteJid} fromMe=${msg.key.fromMe} tipo=${tipoPre} (meuJid=${meuJid} lid=${lidNorm})`)
       }
 
-      // Só responde no chat "Notas Pessoais" (JID normal ou LID de privacidade)
-      const lidNorm = meuLid ? meuLid.split(':')[0] + '@lid' : null
+      // Só responde no chat "Notas Pessoais" — precisa ser fromMe E ser o próprio JID/LID
+      if (!msg.key.fromMe) continue
       const isSelf = msg.key.remoteJid === meuJid
         || (lidNorm && msg.key.remoteJid === lidNorm)
-        || msg.key.remoteJid === '205149196812325@lid' // fallback LID observado nos logs
       if (!isSelf) continue
 
       // Ignora as próprias respostas do bot
@@ -307,13 +308,14 @@ async function conectar() {
 
       console.log(`📨 ${texto}`)
 
+      const destJid = msg.key.remoteJid // responde no mesmo JID que chegou
       try {
         const resposta = await processar(texto)
-        const sent = await sock.sendMessage(meuJid, { text: resposta })
+        const sent = await sock.sendMessage(destJid, { text: resposta })
         if (sent?.key?.id) botMsgIds.add(sent.key.id)
       } catch (err) {
         console.error('Erro:', err.message)
-        await sock.sendMessage(meuJid, { text: '❌ Erro interno. Tente novamente.' })
+        try { await sock.sendMessage(destJid, { text: '❌ Erro interno. Tente novamente.' }) } catch {}
       }
     }
   })
