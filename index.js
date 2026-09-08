@@ -266,8 +266,16 @@ async function conectar() {
       const ageSec = Date.now() / 1000 - msgTs
       if (ageSec > 60) continue
 
-      // Só responde no chat "Notas Pessoais" (mensagem pra si mesmo)
       const meuJid = jidNormalizedUser(sock.user.id)
+
+      // Loga todas mensagens não-triviais antes do filtro de JID
+      const mPre = msg.message || {}
+      const tipoPre = Object.keys(mPre)[0] || 'vazio'
+      if (tipoPre !== 'protocolMessage' && tipoPre !== 'vazio') {
+        console.log(`📩 JID=${msg.key.remoteJid} fromMe=${msg.key.fromMe} tipo=${tipoPre}`)
+      }
+
+      // Só responde no chat "Notas Pessoais" (mensagem pra si mesmo)
       if (msg.key.remoteJid !== meuJid) continue
 
       // Ignora as próprias respostas do bot
