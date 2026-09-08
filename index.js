@@ -302,6 +302,21 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, connected: isConnected, qrPending: !!qrCodeData })
 })
 
+app.get('/reset', async (_req, res) => {
+  try {
+    if (sock) { sock.end(); sock = null }
+    isConnected = false
+    qrCodeData = null
+    const { rmSync } = await import('fs')
+    rmSync(AUTH_DIR, { recursive: true, force: true })
+    mkdirSync(AUTH_DIR, { recursive: true })
+    setTimeout(conectar, 1000)
+    res.send('<html><body style="font-family:sans-serif;padding:40px;background:#111;color:#fff"><h2>🔄 Resetando... acesse <a href="/qr" style="color:#60a5fa">/qr</a> em 10 segundos</h2></body></html>')
+  } catch (e) {
+    res.send('Erro: ' + e.message)
+  }
+})
+
 app.get('/qr', (_req, res) => {
   if (!qrCodeData) {
     return res.send(`
