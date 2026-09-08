@@ -243,10 +243,15 @@ async function conectar() {
   })
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return
+    if (type !== 'notify' && type !== 'append') return
 
     for (const msg of messages) {
       if (!msg.key.fromMe) continue
+
+      // Ignora mensagens antigas (mais de 60s) para não processar histórico no startup
+      const msgTs = (msg.messageTimestamp || 0)
+      const ageSec = Date.now() / 1000 - msgTs
+      if (ageSec > 60) continue
       if (!sock.user) continue
       if (msg.key.remoteJid === 'status@broadcast') continue
 
