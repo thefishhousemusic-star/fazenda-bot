@@ -28,7 +28,7 @@ if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true })
 
 // ─── Gemini ───────────────────────────────────────────────────────────────────
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function callScript(action, data = {}) {
@@ -73,7 +73,7 @@ Campos por ação:
 - consultar_resumo: {"tipo":"pessoal|fazenda|ambos"}
 - nao_entendido: {}
 
-Mensagem: "${texto.replace(/"/g, "'")}"
+Mensagem: "${texto.replace(/"/g, "'").replace(/\n/g, ' ').replace(/\r/g, '')}"
 `
   try {
     const result = await model.generateContent(prompt)
