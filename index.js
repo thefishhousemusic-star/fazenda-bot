@@ -7,7 +7,6 @@ import baileysDefault, {
 
 const makeWASocket = baileysDefault.default || baileysDefault
 import { Boom } from '@hapi/boom'
-import { GoogleGenerativeAI } from '@google/generative-ai'
 import express from 'express'
 import QRCode from 'qrcode'
 import pino from 'pino'
@@ -27,8 +26,18 @@ const AUTH_DIR        = '/tmp/baileys_auth'
 if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true })
 
 // ─── Gemini ───────────────────────────────────────────────────────────────────
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
-const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' })
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`
+
+async function geminiGenerate(prompt) {
+  const res = await fetch(GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error?.message || res.status)
+  return json.candidates[0].content.parts[0].text
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function callScript(action, data = {}) {
@@ -76,9 +85,9 @@ Campos por ação:
 Mensagem: "${texto.replace(/"/g, "'").replace(/\n/g, ' ').replace(/\r/g, '')}"
 `
   try {
-    const result = await model.generateContent(prompt)
-    const txt = result.response.text().trim()
-      .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const txt = (await geminiGenerate(prompt))
+      .trim().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    console.log('🤖 Gemini:', txt.substring(0, 80))
     return JSON.parse(txt)
   } catch (e) {
     console.error('❌ Gemini erro:', e.message)
