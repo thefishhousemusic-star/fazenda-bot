@@ -41,14 +41,21 @@ async function geminiGenerate(prompt) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function callScript(action, data = {}) {
-  const params = new URLSearchParams({
-    api_key: APPS_SCRIPT_KEY,
-    action,
-    data: JSON.stringify(data),
-    t: Date.now(),
-  })
-  const res = await fetch(`${APPS_SCRIPT_URL}?${params}`, { redirect: 'follow' })
-  return res.json()
+  try {
+    const params = new URLSearchParams({
+      api_key: APPS_SCRIPT_KEY,
+      action,
+      data: JSON.stringify(data),
+      t: Date.now(),
+    })
+    const res = await fetch(`${APPS_SCRIPT_URL}?${params}`, { redirect: 'follow' })
+    const json = await res.json()
+    console.log(`📋 Script(${action}):`, JSON.stringify(json).substring(0, 120))
+    return json
+  } catch (e) {
+    console.error(`❌ Script(${action}) erro:`, e.message)
+    return { ok: false, error: e.message }
+  }
 }
 
 const fmtR = v =>
@@ -328,8 +335,11 @@ async function conectar() {
         const sent = await sock.sendMessage(destJid, { text: resposta })
         if (sent?.key?.id) botMsgIds.add(sent.key.id)
       } catch (err) {
-        console.error('Erro:', err.message)
-        try { await sock.sendMessage(destJid, { text: '❌ Erro interno. Tente novamente.' }) } catch {}
+        console.error('Erro processar:', err.message)
+        try {
+          const sent2 = await sock.sendMessage(destJid, { text: '❌ Erro interno. Tente novamente.' })
+          if (sent2?.key?.id) botMsgIds.add(sent2.key.id) // evita loop
+        } catch {}
       }
     }
   })
